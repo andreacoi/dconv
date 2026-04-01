@@ -115,26 +115,38 @@ def _read_values_block(content: str, pos: int) -> tuple:
 
 def _extract_tables(content: str) -> dict:
     """
-    Scan converted content for INSERT INTO statements and build a map of
+    Scan ALL INSERT INTO statements and build a map of
     table_name -> (ordered_columns, type_map).
+    Iterates every INSERT to collect the full union of columns across
+    all rows (SQL Server may omit columns with defaults in some INSERTs).
     """
-    tables = {}
+    # table -> {col: type}  (preserving insertion order via dict)
+    tables: dict = {}
     header_re = re.compile(
         r'INSERT\s+INTO\s+`(\w+)`\s*\(([^)]+)\)\s*VALUES\s*\(',
         re.IGNORECASE,
     )
     for m in header_re.finditer(content):
         table = m.group(1)
-        if table in tables:
-            continue  # only need first occurrence for schema
         cols = [c.strip().strip('`') for c in m.group(2).split(',')]
         vals_str, _ = _read_values_block(content, m.end())
         values = _split_values(vals_str)
-        col_types = {
-            col: _infer_type(val)
-            for col, val in zip(cols, values)
-        }
-        tables[table] = (cols, col_types)
+
+        if table not in tables:
+            tables[table] = {}
+
+        col_types = tables[table]
+        for col, val in zip(cols, values):
+            # Don't downgrade a known type (TEXT beats INT if mixed)
+            existing = col_types.get(col)
+            inferred = _infer_type(val)
+            if existing is None:
+                col_types[col] = inferred
+            elif existing == 'INT' and inferred == 'TEXT':
+                col_types[col] = 'TEXT'
+            elif existing == 'DOUBLE' and inferred == 'TEXT':
+                col_types[col] = 'TEXT'
+
     return tables
 
 
@@ -184,8 +196,8 @@ def convert(content: str, clean: bool = False, gen_tables: bool = False) -> str:
     # Prepend CREATE TABLE statements before first INSERT of each table
     if gen_tables:
         tables = _extract_tables(content)
-        for table, (cols, types) in tables.items():
-            create_stmt = _make_create_table(table, cols, types)
+        for table, col_types in tables.items():
+            create_stmt = _make_create_table(table, list(col_types.keys()), col_types)
             pattern = re.compile(
                 r'(?=INSERT\s+INTO\s+`' + re.escape(table) + r'`)',
                 re.IGNORECASE,
