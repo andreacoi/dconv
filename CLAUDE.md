@@ -14,4 +14,17 @@ Questa applicazione si occupa di convertire dei file SQL Server passati in input
 Questa applicazione è scritta in Python e deve essere compilata per generare un eseguibile che giri su tutte le Piattaforme Unix-like.
 
 ## Dipendenze
-Questa applicazione non ha dipendenze e non dovrà mai averne, compiendo solo variazioni su stringhe e testi.
+Questa applicazione non ha dipendenze runtime e non dovrà mai averne, compiendo solo variazioni su stringhe e testi.
+Per la compilazione viene usato **PyInstaller** (installato automaticamente da `build.sh`).
+
+## File principali
+- `dconv.py` — script principale (tutto in un file, nessuna dipendenza)
+- `build.sh` — script di build; genera `dist/dconv` (eseguibile standalone)
+- `sample/` — file SQL Server di esempio per test
+
+## Dettagli tecnici
+- Input: UTF-16 con BOM (tipico export SQL Server), UTF-8 BOM, o UTF-8 plain
+- Output: sempre UTF-8 senza BOM
+- Trasformazioni applicate sempre: rimozione `GO`, `[dbo].` prefix, `[name]` → `` `name` ``, `N'...'` → `'...'`, `INSERT` → `INSERT INTO`
+- Trasformazioni opzionali: rimozione `USE [db]` (`-c`), generazione `CREATE TABLE` (`-g`)
+- `-g` e `-i` sono mutuamente esclusivi; il default (nessuno dei due) equivale a `-i`
