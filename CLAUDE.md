@@ -25,6 +25,6 @@ Per la compilazione viene usato **PyInstaller** (installato automaticamente da `
 ## Dettagli tecnici
 - Input: UTF-16 con BOM (tipico export SQL Server), UTF-8 BOM, o UTF-8 plain
 - Output: sempre UTF-8 senza BOM
-- Trasformazioni applicate sempre: rimozione `GO`, `[dbo].` prefix, `[name]` → `` `name` ``, `N'...'` → `'...'`, `INSERT` → `INSERT INTO`
+- Trasformazioni applicate sempre: rimozione `GO`, `SET IDENTITY_INSERT`, `[dbo].` prefix, `[name]` → `` `name` ``, `N'...'` → `'...'`, `INSERT` → `INSERT INTO`, aggiunta `;` finale
 - Trasformazioni opzionali: rimozione `USE [db]` (`-c`), generazione `CREATE TABLE` (`-g`)
 - `-g` e `-i` sono mutuamente esclusivi; il default (nessuno dei due) equivale a `-i`

@@ -162,6 +162,9 @@ def convert(content: str, clean: bool = False, gen_tables: bool = False) -> str:
     # Remove GO (SQL Server batch separator)
     content = re.sub(r'(?im)^GO\s*$\n?', '', content)
 
+    # Remove SET IDENTITY_INSERT statements (SQL Server-specific, not valid in MySQL)
+    content = re.sub(r'(?im)^SET\s+IDENTITY_INSERT\s+.*$\n?', '', content)
+
     # Remove [dbo]. schema prefix
     content = content.replace('[dbo].', '')
 
