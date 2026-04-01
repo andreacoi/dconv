@@ -174,6 +174,10 @@ def convert(content: str, clean: bool = False, gen_tables: bool = False) -> str:
     # Add INTO after INSERT when missing (INSERT `table` -> INSERT INTO `table`)
     content = re.sub(r'(?i)\bINSERT\s+(?!INTO\b)', 'INSERT INTO ', content)
 
+    # Add semicolon at end of each INSERT statement (MySQL requires it)
+    # An INSERT ends at the closing ) of VALUES (...), optionally followed by spaces
+    content = re.sub(r'\)\s*\n(?=\s*INSERT|\s*CREATE|\s*$)', ');\n', content)
+
     # Prepend CREATE TABLE statements before first INSERT of each table
     if gen_tables:
         tables = _extract_tables(content)
