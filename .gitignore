@@ -1,0 +1,21 @@
+# Build artifacts (PyInstaller)
+build/
+dist/
+
+# PyInstaller spec (auto-generated)
+*.spec
+
+# Virtual environment used by build.sh
+.venv-build/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Editor/OS
+.DS_Store
+*.swp
+*~
+
+# Sample folder
+sample/*
