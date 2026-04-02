@@ -2,6 +2,7 @@
 """dconv - SQL Server to MySQL file converter"""
 
 import argparse
+import json
 import re
 import sys
 import os
@@ -28,6 +29,59 @@ def read_file(path: str) -> str:
 def write_file(path: str, content: str) -> None:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+def _config_path() -> str:
+    xdg = os.environ.get('XDG_CONFIG_HOME', os.path.join(os.path.expanduser('~'), '.config'))
+    return os.path.join(xdg, 'dconv', 'config.json')
+
+
+def load_config(custom_path: str | None = None) -> dict:
+    path = custom_path if custom_path else _config_path()
+    if not os.path.isfile(path):
+        if custom_path:
+            print(f"Error: config file '{path}' not found.", file=sys.stderr)
+            sys.exit(1)
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Warning: could not read config '{path}': {e}", file=sys.stderr)
+        return {}
+
+
+def _extract_db_name(content: str) -> str | None:
+    """Extract database name from USE [DbName] statement."""
+    m = re.search(r'(?im)^USE\s+\[([^\]]+)\]', content)
+    return m.group(1) if m else None
+
+
+def _find_db_config(config: dict, db_name: str | None, source_filename: str) -> dict:
+    """
+    Lookup database-specific config:
+    1. Exact match on db_name extracted from USE statement
+    2. Substring match: a key in databases that appears in the source filename
+    3. Fallback to 'default' block
+    """
+    databases = config.get('databases', {})
+
+    # 1. Exact match on USE db name
+    if db_name and db_name in databases:
+        return databases[db_name]
+
+    # 2. Substring match on source filename
+    basename = os.path.basename(source_filename)
+    for key in databases:
+        if key in basename:
+            return databases[key]
+
+    # 3. Default
+    return config.get('default', {})
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +214,22 @@ def _make_create_table(table: str, cols: list, types: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Extra columns (from config)
+# ---------------------------------------------------------------------------
+
+def _make_alter_statements(db_config: dict) -> str:
+    """Generate ALTER TABLE ... ADD COLUMN statements from extra_columns config."""
+    tables = db_config.get('tables', {})
+    stmts = []
+    for table, table_cfg in tables.items():
+        for col in table_cfg.get('extra_columns', []):
+            stmts.append(
+                f"ALTER TABLE `{table}` ADD COLUMN `{col['name']}` {col['definition']};"
+            )
+    return '\n'.join(stmts)
+
+
+# ---------------------------------------------------------------------------
 # Core conversion
 # ---------------------------------------------------------------------------
 
@@ -211,14 +281,26 @@ def convert(content: str, clean: bool = False, gen_tables: bool = False) -> str:
 # File processing
 # ---------------------------------------------------------------------------
 
-def process_file(src: str, dst: str, clean: bool, gen_tables: bool) -> None:
+def process_file(src: str, dst: str, clean: bool, gen_tables: bool,
+                  config: dict | None = None) -> None:
     try:
         content = read_file(src)
     except OSError as e:
         print(f"Error reading '{src}': {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Resolve database-specific config before conversion modifies content
+    db_config = {}
+    if config:
+        db_name = _extract_db_name(content)
+        db_config = _find_db_config(config, db_name, src)
+
     output = convert(content, clean=clean, gen_tables=gen_tables)
+
+    # Append ALTER TABLE statements for extra columns
+    alter_stmts = _make_alter_statements(db_config)
+    if alter_stmts:
+        output = output.rstrip('\n') + '\n\n' + alter_stmts + '\n'
 
     try:
         write_file(dst, output)
@@ -250,6 +332,7 @@ Options:
                   (mutually exclusive with -i)
   -i              Generate only INSERT statements, no CREATE TABLE
                   (mutually exclusive with -g)
+  -f, --config    Path to a custom config file (default: ~/.config/dconv/config.json)
   -h, --help      Show this help message
 
 Notes:
@@ -257,6 +340,12 @@ Notes:
   - [dbo].[Table] notation is converted to backtick syntax
   - N'...' Unicode prefixes are stripped
   - GO batch separators are always removed
+
+Config file:
+  dconv looks for ~/.config/dconv/config.json (or $XDG_CONFIG_HOME/dconv/config.json)
+  to apply per-database customizations (e.g. extra VIRTUAL GENERATED columns).
+  Database is detected from USE [DbName] in the dump, or by matching a
+  config key against the source filename. See README for config format.
 """
 
 
@@ -268,6 +357,7 @@ def main():
     parser.add_argument('-c', '--clean', action='store_true')
     parser.add_argument('-g', action='store_true')
     parser.add_argument('-i', action='store_true')
+    parser.add_argument('-f', '--config', metavar='CONFIG', default=None)
     parser.add_argument('-h', '--help', action='store_true')
 
     args = parser.parse_args()
@@ -285,6 +375,7 @@ def main():
         sys.exit(1)
 
     gen_tables = args.g
+    config = load_config(args.config)
 
     if args.bulk_mode:
         source_dir = os.getcwd()
@@ -296,14 +387,16 @@ def main():
             base = os.path.splitext(os.path.basename(src))[0]
             dst = os.path.join(os.path.dirname(src), f"{base}_d.sql")
             print(f"  {os.path.basename(src)} -> {os.path.basename(dst)}")
-            process_file(src, dst, clean=args.clean, gen_tables=gen_tables)
+            process_file(src, dst, clean=args.clean, gen_tables=gen_tables,
+                         config=config)
         print("Done.")
     else:
         if not args.s or not args.t:
             print("Error: -s and -t are required (or use -b for bulk mode).", file=sys.stderr)
             print(HELP_TEXT)
             sys.exit(1)
-        process_file(args.s, args.t, clean=args.clean, gen_tables=gen_tables)
+        process_file(args.s, args.t, clean=args.clean, gen_tables=gen_tables,
+                     config=config)
         print(f"Done: {args.t}")
 
 
