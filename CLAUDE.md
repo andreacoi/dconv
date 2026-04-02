@@ -8,6 +8,7 @@ Questa applicazione si occupa di convertire dei file SQL Server passati in input
 - -c, --clean - pulisci statement come: use "nome-vecchio-db";
 - -g - genera tabelle ricavando struttura dal file sorgente (questo comando esclude -i)
 - -i - genera solo query di insert senza generare le tabelle (questo comando esclude -g)
+- -f, --config - percorso a un file di configurazione custom (default: ~/.config/dconv/config.json)
 - -h, --help, genera testo di help
 
 ## Linguaggio
@@ -28,3 +29,33 @@ Per la compilazione viene usato **PyInstaller** (installato automaticamente da `
 - Trasformazioni applicate sempre: rimozione `GO`, `SET IDENTITY_INSERT`, `[dbo].` prefix, `[name]` → `` `name` ``, `N'...'` → `'...'`, `INSERT` → `INSERT INTO`, aggiunta `;` finale
 - Trasformazioni opzionali: rimozione `USE [db]` (`-c`), generazione `CREATE TABLE` (`-g`)
 - `-g` e `-i` sono mutuamente esclusivi; il default (nessuno dei due) equivale a `-i`
+
+## File di configurazione
+dconv cerca `~/.config/dconv/config.json` (o `$XDG_CONFIG_HOME/dconv/config.json`) per personalizzazioni per-database.
+
+### Struttura
+```json
+{
+  "databases": {
+    "NomeDB": {
+      "tables": {
+        "NomeTabella": {
+          "extra_columns": [
+            { "name": "ColName", "definition": "INT GENERATED ALWAYS AS (...) VIRTUAL" }
+          ]
+        }
+      }
+    }
+  },
+  "default": { "tables": { } }
+}
+```
+
+### Logica di lookup
+1. Match esatto su nome DB estratto da `USE [...]` nel dump
+2. Match per sottostringa: chiave di `databases` contenuta nel nome del file sorgente
+3. Fallback su blocco `default` (se presente)
+
+### Comportamento
+- Le `extra_columns` vengono appese in coda al file generato come `ALTER TABLE ... ADD COLUMN`
+- Senza file di configurazione, il comportamento è invariato
