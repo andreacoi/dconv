@@ -104,6 +104,7 @@ dconv -b [opzioni]
 | `-c`, `--clean` | Rimuove gli statement `USE [database]` |
 | `-g` | Genera le istruzioni `CREATE TABLE` inferendo la struttura dagli INSERT (esclude `-i`) |
 | `-i` | Genera solo gli INSERT senza `CREATE TABLE` (esclude `-g`) |
+| `-f`, `--config` | Percorso a un file di configurazione custom (default: `~/.config/dconv/config.json`) |
 | `-h`, `--help` | Mostra il testo di aiuto |
 
 > **Nota:** `-g` e `-i` sono mutuamente esclusivi. Se non viene specificato né l'uno né l'altro, il comportamento è equivalente a `-i`.
@@ -126,6 +127,60 @@ Modalità bulk (tutti i `.sql` nella directory corrente):
 ```bash
 dconv -b -c
 ```
+
+Conversione con file di configurazione custom:
+```bash
+dconv -s export.sql -t output.sql -g -f /path/to/config.json
+```
+
+---
+
+## File di configurazione
+
+dconv supporta un file di configurazione JSON per applicare personalizzazioni per-database (es. aggiunta di colonne `VIRTUAL GENERATED` assenti dai dump).
+
+### Posizione
+
+Per default viene cercato in `~/.config/dconv/config.json` (o `$XDG_CONFIG_HOME/dconv/config.json`). È possibile specificare un percorso diverso con il flag `-f`:
+
+```bash
+dconv -s export.sql -t output.sql -g -f /path/to/config.json
+```
+
+### Struttura
+
+```json
+{
+  "databases": {
+    "NomeDB": {
+      "tables": {
+        "NomeTabella": {
+          "extra_columns": [
+            {
+              "name": "NomeColonna",
+              "definition": "INT GENERATED ALWAYS AS (`Anno` * 1000 + `Numero`) VIRTUAL"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "default": {
+    "tables": {}
+  }
+}
+```
+
+### Logica di lookup del database
+
+1. **Match esatto** — il nome del database viene estratto dallo statement `USE [NomeDB]` presente nel dump
+2. **Match per sottostringa** — se non è presente `USE`, viene cercata una chiave di `databases` contenuta nel nome del file sorgente (es. la chiave `"MioDB"` matcha il file `MioDB_20260401.sql`)
+3. **Fallback** — se nessun match viene trovato, viene usato il blocco `default` (se presente)
+
+### Comportamento
+
+- Le `extra_columns` vengono appese in coda al file generato come statement `ALTER TABLE ... ADD COLUMN`
+- Senza file di configurazione il comportamento è invariato
 
 ---
 
