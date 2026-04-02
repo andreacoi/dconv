@@ -8,7 +8,7 @@ import sys
 import os
 import glob as _glob
 
-VERSION = "1.0.0"
+VERSION = "1.2.0"
 
 
 # ---------------------------------------------------------------------------
